@@ -1,0 +1,523 @@
+s7day128
+
+内容回顾：
+	1. 开发模式
+		- 普通开发方式（前后端放在一起写）
+		- 前后端分离
+	
+	2. 后端开发
+		为前端提供URL（API/接口的开发）
+		注：永远返回HttpResponse
+		
+	3. Django FBV、CBV
+		FBV,function base view
+			def users(request):
+				user_list = ['alex','oldboy']
+				return HttpResponse(json.dumps((user_list)))
+				
+		CBV,class base view 
+			路由：
+				url(r'^students/', views.StudentsView.as_view()),
+			
+			视图：
+				from django.views import View
+
+				class StudentsView(View):
+
+					def get(self,request,*args,**kwargs):
+						return HttpResponse('GET')
+
+					def post(self, request, *args, **kwargs):
+						return HttpResponse('POST')
+
+					def put(self, request, *args, **kwargs):
+						return HttpResponse('PUT')
+
+					def delete(self, request, *args, **kwargs):
+						return HttpResponse('DELETE')
+	4. 列表生成时
+	
+		class Foo:
+			pass
+			
+		class Bar:
+			pass
+		
+		v = []
+		for i in [Foo,Bar]:
+			obj = i()
+			v.append(obj)
+		
+		
+		v = [item() for item in [Foo,Bar]]
+		
+		v对象列表
+		
+	5. 面向对象
+		- 封装
+			- 对同一类方法封装到类中
+				class File:
+					文件增删改查方法
+					
+				Class DB:
+					数据库的方法
+					
+			- 将数据封装到对象中
+				class File:
+					def __init__(self,a1,a2):
+						self.a1 = a1 
+						self.xxx = a2
+					def get:...
+					def delete:...
+					def update:...
+					def add:...
+					
+				obj1 = File(123,666)
+				obj2 = File(456,999)
+		
+		    PS: 扩展 
+				class Request(object):
+
+					def __init__(self,obj):
+						self.obj = obj
+
+					@property
+					def user(self):
+						return self.obj.authticate()
+
+				class Auth(object):
+					def __init__(self,name,age):
+						self.name = name
+						self.age = age
+
+					def authticate(self):
+						return self.name
+
+
+				class APIView(object):
+
+					def dispatch(self):
+						self.f2()
+
+					def f2(self):
+						a = Auth('alex',18)
+						b = Auth('oldboy',18)
+						req = Request(b)
+						print(req.user)
+
+				obj = APIView()
+				obj.dispatch()
+	
+	
+	
+	
+今日概要：
+	1. restful 规范（建议）
+	
+	2. django rest framework框架
+	
+内容详细：
+	0. FBV、CBV
+		CBV，基于反射实现根据请求方式不同，执行不同的方法。
+		原理：
+			url -> view方法 -> dispatch方法（反射执行其他：GET/POST/DELETE/PUT）
+			
+		流程：
+			class StudentsView(View):
+				def dispatch(self, request, *args, **kwargs):
+					print('before')
+					ret = super(StudentsView,self).dispatch(request, *args, **kwargs)
+					print('after')
+					return ret
+
+				def get(self,request,*args,**kwargs):
+					return HttpResponse('GET')
+
+				def post(self, request, *args, **kwargs):
+					return HttpResponse('POST')
+
+				def put(self, request, *args, **kwargs):
+					return HttpResponse('PUT')
+
+				def delete(self, request, *args, **kwargs):
+					return HttpResponse('DELETE')
+	
+		继承（多个类共用的功能，为了避免重复编写）：
+			from django.views import View
+
+
+			class MyBaseView(object):
+				def dispatch(self, request, *args, **kwargs):
+					print('before')
+					ret = super(MyBaseView,self).dispatch(request, *args, **kwargs)
+					print('after')
+					return ret
+
+			class StudentsView(MyBaseView,View):
+
+				def get(self,request,*args,**kwargs):
+					print('get方法')
+					return HttpResponse('GET')
+
+				def post(self, request, *args, **kwargs):
+					return HttpResponse('POST')
+
+				def put(self, request, *args, **kwargs):
+					return HttpResponse('PUT')
+
+				def delete(self, request, *args, **kwargs):
+					return HttpResponse('DELETE')
+
+			class TeachersView(MyBaseView,View):
+
+				def get(self,request,*args,**kwargs):
+					return HttpResponse('GET')
+
+				def post(self, request, *args, **kwargs):
+					return HttpResponse('POST')
+
+				def put(self, request, *args, **kwargs):
+					return HttpResponse('PUT')
+
+				def delete(self, request, *args, **kwargs):
+					return HttpResponse('DELETE')
+	
+		面试题：
+			1. django中间件
+				- process_request
+				- process_view
+				- process_response
+				- process_exception
+				- process_render_template
+			2. 使用中间件做过什么？
+				- 权限
+				- 用户登录验证
+				- django的csrf是如何实现？
+					process_view方法
+						- 检查视图是否被 @csrf_exempt （免除csrf认证）
+						- 去请求体或cookie中获取token
+			3. 
+				情况一：
+					MIDDLEWARE = [
+						'django.middleware.security.SecurityMiddleware',
+						'django.contrib.sessions.middleware.SessionMiddleware',
+						'django.middleware.common.CommonMiddleware',
+						'django.middleware.csrf.CsrfViewMiddleware', # 全站使用csrf认证
+						'django.contrib.auth.middleware.AuthenticationMiddleware',
+						'django.contrib.messages.middleware.MessageMiddleware',
+						'django.middleware.clickjacking.XFrameOptionsMiddleware',
+					]
+					
+					
+					from django.views.decorators.csrf import csrf_exempt
+					@csrf_exempt # 该函数无需认证
+					def users(request):
+						user_list = ['alex','oldboy']
+						return HttpResponse(json.dumps((user_list)))
+				
+				情况二：
+					MIDDLEWARE = [
+						'django.middleware.security.SecurityMiddleware',
+						'django.contrib.sessions.middleware.SessionMiddleware',
+						'django.middleware.common.CommonMiddleware',
+						#'django.middleware.csrf.CsrfViewMiddleware', # 全站不使用csrf认证
+						'django.contrib.auth.middleware.AuthenticationMiddleware',
+						'django.contrib.messages.middleware.MessageMiddleware',
+						'django.middleware.clickjacking.XFrameOptionsMiddleware',
+					]
+					
+					
+					from django.views.decorators.csrf import csrf_exempt
+					@csrf_protect # 该函数需认证
+					def users(request):
+						user_list = ['alex','oldboy']
+						return HttpResponse(json.dumps((user_list)))
+					
+			
+		CBV小知识,csrf时需要使用
+			- @method_decorator(csrf_exempt)
+			- 在dispatch方法中（单独方法无效）
+			
+			方式一：
+				from django.views.decorators.csrf import csrf_exempt,csrf_protect
+				from django.utils.decorators import method_decorator
+				class StudentsView(View):
+					
+					@method_decorator(csrf_exempt)
+					def dispatch(self, request, *args, **kwargs):
+						return super(StudentsView,self).dispatch(request, *args, **kwargs)
+
+					def get(self,request,*args,**kwargs):
+						print('get方法')
+						return HttpResponse('GET')
+
+					def post(self, request, *args, **kwargs):
+						return HttpResponse('POST')
+
+					def put(self, request, *args, **kwargs):
+						return HttpResponse('PUT')
+
+					def delete(self, request, *args, **kwargs):
+						return HttpResponse('DELETE')
+			方式二：
+				from django.views.decorators.csrf import csrf_exempt,csrf_protect
+				from django.utils.decorators import method_decorator
+
+				@method_decorator(csrf_exempt,name='dispatch')
+				class StudentsView(View):
+
+					def get(self,request,*args,**kwargs):
+						print('get方法')
+						return HttpResponse('GET')
+
+					def post(self, request, *args, **kwargs):
+						return HttpResponse('POST')
+
+					def put(self, request, *args, **kwargs):
+						return HttpResponse('PUT')
+
+					def delete(self, request, *args, **kwargs):
+						return HttpResponse('DELETE')
+
+		总结：
+			- 本质，基于反射来实现
+			- 流程：路由，view，dispatch(反射)
+			- 取消csrf认证（装饰器要加到dispatch方法上且method_decorator装饰）
+				
+			扩展：
+				- csrf 
+					- 基于中间件的process_view方法
+					- 装饰器给单独函数进行设置（认证或无需认证）
+					
+				
+	1. restful 规范（建议）
+		a. 接口开发
+			
+			urlpatterns = [
+				# url(r'^admin/', admin.site.urls),
+				url(r'^get_order/', views.get_order),
+				url(r'^add_order/', views.add_order),
+				url(r'^del_order/', views.del_order),
+				url(r'^update_order/', views.update_order),
+			]
+			
+				
+			def get_order(request):
+				return HttpResponse('')
+
+
+			def add_order(request):
+				return HttpResponse('')
+
+
+			def del_order(request):
+				return HttpResponse('')
+
+
+			def update_order(request):
+				return HttpResponse('')
+				
+		b. restful 规范（建议）
+			
+			1. 根据method不同做不同的操作，示例：
+			
+				基于FBV:
+					urlpatterns = [
+						url(r'^order/', views.order),
+					]
+
+					def order(request):
+						if request.method == 'GET':
+							return HttpResponse('获取订单')
+						elif request.method == 'POST':
+							return HttpResponse('创建订单')
+						elif request.method == 'PUT':
+							return HttpResponse('更新订单')
+						elif request.method == 'DELETE':
+							return HttpResponse('删除订单')
+				基于CBV:
+					urlpatterns = [
+						url(r'^order/', views.OrderView.as_view()),
+					]
+			
+					class OrderView(View):
+						def get(self,request,*args,**kwargs):
+							return HttpResponse('获取订单')
+
+						def post(self,request,*args,**kwargs):
+							return HttpResponse('创建订单')
+
+						def put(self,request,*args,**kwargs):
+							return HttpResponse('更新订单')
+
+						def delete(self,request,*args,**kwargs):
+							return HttpResponse('删除订单')
+
+			
+		c. 谈谈自己对restful api 规范的认识
+			
+			10个规则
+		
+			
+		注意：推荐使用CBV
+			
+			
+			
+	2. django rest framework框架
+		pip3 install djangorestframework
+	
+		a. 认证 
+			- 仅使用：
+					from django.views import View
+					from rest_framework.views import APIView
+					from rest_framework.authentication import BasicAuthentication
+					from rest_framework import exceptions
+					from rest_framework.request import Request
+
+					class MyAuthentication(object):
+						def authenticate(self,request):
+							token = request._request.GET.get('token')
+							# 获取用户名和密码，去数据校验
+							if not token:
+								raise exceptions.AuthenticationFailed('用户认证失败')
+							return ("alex",None)
+
+						def authenticate_header(self,val):
+							pass
+
+					class DogView(APIView):
+						authentication_classes = [MyAuthentication,]
+
+						def get(self,request,*args,**kwargs):
+							print(request)
+							print(request.user)
+							ret  = {
+								'code':1000,
+								'msg':'xxx'
+							}
+							return HttpResponse(json.dumps(ret),status=201)
+
+						def post(self,request,*args,**kwargs):
+							return HttpResponse('创建Dog')
+
+						def put(self,request,*args,**kwargs):
+							return HttpResponse('更新Dog')
+
+						def delete(self,request,*args,**kwargs):
+							return HttpResponse('删除Dog')
+
+			- 源码流程：
+				dispatch...
+					
+作业：
+	1. 中间件
+	2. csrf 
+	3. CBV 
+	4. 规范 
+		- 10条规范
+		- 认识 
+	5. djangorestframework
+		- 如何验证（基于数据库实现用户认证）
+		- 源码流程（面向对象回顾流程）
+	
+	预习：
+		版本
+		权限
+		控制访问频率
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	

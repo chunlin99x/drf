@@ -1,0 +1,407 @@
+s7day129
+内容回顾：
+	1. 中间件
+	
+	2. csrf原理
+
+	3. rest 10规范
+	
+	4. 面向对象
+	
+	5. django请求声明周期
+	
+	6. django请求声明周期（包含rest framework框架）
+	   PS: dispatch
+		
+
+今日内容：
+	1. 认证
+	2. 权限
+	3. 节流（访问频率控制）
+	4. 版本
+	
+今日内容：
+	1. 认证
+		a. 问题1：有些API需要用户登录成功之后，才能访问；有些无需登录就能访问。
+		b. 基本使用认证组件
+			解决：
+				a. 创建两张表
+				b. 用户登录（返回token并保存到数据库）
+		c. 认证流程原理
+			- 见图示
+		
+		d. 再看一遍源码
+			1. 局部视图使用&全局使用
+			2. 匿名是request.user = None
+			
+		e. 内置认证类
+			1. 认证类，必须继承：from rest_framework.authentication import BaseAuthentication
+			2. 其他认证类：BasicAuthentication
+			
+		梳理：
+			1. 使用 
+				- 创建类:继承BaseAuthentication； 实现：authenticate方法
+				- 返回值：
+					- None,我不管了，下一认证来执行。
+					- raise exceptions.AuthenticationFailed('用户认证失败') # from rest_framework import exceptions
+					- (元素1，元素2)  # 元素1赋值给request.user; 元素2赋值给request.auth 
+					
+				- 局部使用
+					from rest_framework.authentication import BaseAuthentication,BasicAuthentication
+					class UserInfoView(APIView):
+						"""
+						订单相关业务
+						"""
+						authentication_classes = [BasicAuthentication,]
+						def get(self,request,*args,**kwargs):
+							print(request.user)
+							return HttpResponse('用户信息')
+				- 全局使用：
+					REST_FRAMEWORK = {
+						# 全局使用的认证类
+						"DEFAULT_AUTHENTICATION_CLASSES":['api.utils.auth.FirstAuthtication','api.utils.auth.Authtication', ],
+						# "UNAUTHENTICATED_USER":lambda :"匿名用户"
+						"UNAUTHENTICATED_USER":None, # 匿名，request.user = None
+						"UNAUTHENTICATED_TOKEN":None,# 匿名，request.auth = None
+					}
+			2. 源码流程
+				- dispatch
+					- 封装request
+						- 获取定义的认证类（全局/局部），通过列表生成时创建对象。
+					- initial
+						- perform_authentication
+							request.user(内部循环....)
+							
+							
+	2. 权限 
+		问题：不用视图不用权限可以访问
+		
+		基本使用：
+						
+			class MyPermission(object):
+
+				def has_permission(self,request,view):
+					if request.user.user_type != 3:
+						return False
+					return True
+											
+			
+				class OrderView(APIView):
+					"""
+					订单相关业务(只有SVIP用户有权限)
+					"""
+					permission_classes = [MyPermission,]
+					
+					def get(self,request,*args,**kwargs):
+						# request.user
+						# request.auth
+						self.dispatch
+						ret = {'code':1000,'msg':None,'data':None}
+						try:
+							ret['data'] = ORDER_DICT
+						except Exception as e:
+							pass
+						return JsonResponse(ret)
+
+		源码流程：
+			- ...
+			
+		梳理：
+			1. 使用
+				- 类，必须继承：BasePermission，必须实现：has_permission方法
+					from rest_framework.permissions import BasePermission
+
+					class SVIPPermission(BasePermission):
+						message = "必须是SVIP才能访问"
+						def has_permission(self,request,view):
+							if request.user.user_type != 3:
+								return False
+							return True
+				- 返回值：	
+					- True, 有权访问
+					- False，无权访问
+				- 局部 
+					class UserInfoView(APIView):
+						"""
+						订单相关业务（普通用户、VIP）
+						"""
+						permission_classes = [MyPermission1, ]
+
+						def get(self,request,*args,**kwargs):
+							return HttpResponse('用户信息')
+
+				- 全局 
+					REST_FRAMEWORK = {
+						"DEFAULT_PERMISSION_CLASSES":['api.utils.permission.SVIPPermission']
+					}
+				
+			2. 源码流程 
+					
+					
+	3. 访问频率控制（节流）
+		问题：控制访问频率 
+			import time
+			VISIT_RECORD = {}
+
+			class VisitThrottle(object):
+				"""60s内只能访问3次"""
+
+				def __init__(self):
+					self.history = None
+
+				def allow_request(self,request,view):
+					# 1. 获取用户IP
+					remote_addr = request.META.get('REMOTE_ADDR')
+					ctime = time.time()
+					if remote_addr not in VISIT_RECORD:
+						VISIT_RECORD[remote_addr] = [ctime,]
+						return True
+					history = VISIT_RECORD.get(remote_addr)
+					self.history = history
+
+					while history and history[-1] < ctime - 60:
+						history.pop()
+
+					if len(history) < 3:
+						history.insert(0,ctime)
+						return True
+
+					# return True    # 表示可以继续访问
+					# return False # 表示访问频率太高，被限制
+
+				def wait(self):
+					"""
+					还需要等多少秒才能访问
+					:return:
+					"""
+					ctime = time.time()
+					return 60 - (ctime - self.history[-1])
+
+			class AuthView(APIView):
+				"""
+				用于用户登录认证
+				"""
+				authentication_classes = []
+				permission_classes = []
+				throttle_classes = [VisitThrottle,]
+
+				def post(self,request,*args,**kwargs):
+
+
+					ret = {'code':1000,'msg':None}
+					try:
+						user = request._request.POST.get('username')
+						pwd = request._request.POST.get('password')
+						obj = models.UserInfo.objects.filter(username=user,password=pwd).first()
+						if not obj:
+							ret['code'] = 1001
+							ret['msg'] = "用户名或密码错误"
+						# 为登录用户创建token
+						token = md5(user)
+						# 存在就更新，不存在就创建
+						models.UserToken.objects.update_or_create(user=obj,defaults={'token':token})
+						ret['token'] = token
+					except Exception as e:
+						ret['code'] = 1002
+						ret['msg'] = '请求异常'
+
+					return JsonResponse(ret)
+		
+		源码流程： 
+			...
+			
+		内置控制频率类：
+			from rest_framework.throttling import BaseThrottle,SimpleRateThrottle
+			class VisitThrottle(SimpleRateThrottle):
+				scope = "Luffy"
+
+				def get_cache_key(self, request, view):
+					return self.get_ident(request)
+
+
+			class UserThrottle(SimpleRateThrottle):
+				scope = "LuffyUser"
+
+				def get_cache_key(self, request, view):
+					return request.user.username
+		
+		
+			REST_FRAMEWORK = {
+				# 全局使用的认证类
+				"DEFAULT_AUTHENTICATION_CLASSES":['api.utils.auth.FirstAuthtication','api.utils.auth.Authtication', ],
+				# "DEFAULT_AUTHENTICATION_CLASSES":['api.utils.auth.FirstAuthtication', ],
+				# "UNAUTHENTICATED_USER":lambda :"匿名用户"
+				"UNAUTHENTICATED_USER":None, # 匿名，request.user = None
+				"UNAUTHENTICATED_TOKEN":None,# 匿名，request.auth = None
+				"DEFAULT_PERMISSION_CLASSES":['api.utils.permission.SVIPPermission'],
+				"DEFAULT_THROTTLE_CLASSES":["api.utils.throttle.UserThrottle"],
+				"DEFAULT_THROTTLE_RATES":{
+					"Luffy":'3/m',
+					"LuffyUser":'10/m',
+				}
+			}
+
+		
+		梳理： 
+			a. 基本使用 
+				- 类， 继承：BaseThrottle，实现：allow_request、wait
+				- 类， 继承：SimpleRateThrottle，实现：get_cache_key、scope = "Luffy"（配置文件中的key）
+				
+			b. 局部 
+				class AuthView(APIView):
+					"""
+					用于用户登录认证
+					"""
+					authentication_classes = []
+					permission_classes = []
+					throttle_classes = [VisitThrottle,] # *******************
+
+					def post(self,request,*args,**kwargs):
+
+						ret = {'code':1000,'msg':None}
+						try:
+							user = request._request.POST.get('username')
+							pwd = request._request.POST.get('password')
+							obj = models.UserInfo.objects.filter(username=user,password=pwd).first()
+							if not obj:
+								ret['code'] = 1001
+								ret['msg'] = "用户名或密码错误"
+							# 为登录用户创建token
+							token = md5(user)
+							# 存在就更新，不存在就创建
+							models.UserToken.objects.update_or_create(user=obj,defaults={'token':token})
+							ret['token'] = token
+						except Exception as e:
+							ret['code'] = 1002
+							ret['msg'] = '请求异常'
+
+						return JsonResponse(ret)
+						
+			c. 全局
+				REST_FRAMEWORK = {
+					# 全局使用的认证类
+					"DEFAULT_AUTHENTICATION_CLASSES":['api.utils.auth.FirstAuthtication','api.utils.auth.Authtication', ],
+					# "DEFAULT_AUTHENTICATION_CLASSES":['api.utils.auth.FirstAuthtication', ],
+					# "UNAUTHENTICATED_USER":lambda :"匿名用户"
+					"UNAUTHENTICATED_USER":None, # 匿名，request.user = None
+					"UNAUTHENTICATED_TOKEN":None,# 匿名，request.auth = None
+					"DEFAULT_PERMISSION_CLASSES":['api.utils.permission.SVIPPermission'],
+					
+					"DEFAULT_THROTTLE_CLASSES":["api.utils.throttle.UserThrottle"],
+					"DEFAULT_THROTTLE_RATES":{
+						"Luffy":'3/m',
+						"LuffyUser":'10/m',
+					}
+				}
+			
+		
+今日作业：
+	昨天：
+		1. 中间件
+		2. csrf 
+		3. CBV 
+		4. 规范 
+			- 10条规范
+			- 认识 
+		5. djangorestframework
+			- 如何验证（基于数据库实现用户认证）
+			- 源码流程（面向对象回顾流程）
+	今天上午：
+		1. 中间件
+		
+		2. csrf原理
+
+		3. rest 10规范
+		
+		4. 面向对象
+		
+		5. django请求声明周期
+		
+		6. django请求声明周期（包含rest framework框架）
+		   PS: dispatch
+			
+		7. rest framework 认证流程（封装Request.user）
+		
+		8. rest framework 权限流程
+		
+		9. rest framework 节流流程
+		
+	代码：
+		认证Demo，
+		权限Demo（用户类型不同，权限不同）
+		节流Demo（匿名，登录用）
+		
+		三组件组合
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+			
+			
+			
+		
+			
+				
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+				
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
